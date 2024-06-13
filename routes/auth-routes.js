@@ -26,6 +26,13 @@ router.post('/verify', ctrl.VerifyEmail)
 router.post('/forgot-password', ctrl.ForgotPassword);
 router.post('/reset-password', ctrl.ResetPassword);
 router.post('/update-password', ctrl.UpdatePassword);
+router.post('/from-address', ctrl.CreateAddress);
+router.post('/recepient-address', ctrl.CreateAddress);
+router.post('/parcels', ctrl.CreateParcel);
+router.post('/predefined-parcel', ctrl.CreatePredefinedParcel);
+router.post('/shipment', ctrl.CreateShpiment);
+router.get('/shipments', ctrl.AllShipments);
+router.post('/checkCode', ctrl.CreateUserOfTelegram)
 router.post('/login', async (req, res) => {
 	try {
 		const user = await User.findOne({ email: req.body.email });
@@ -83,43 +90,45 @@ router.get('/auth/google', passport.authenticate('google', {
 
 
 router.get('/auth/google/callback', (req, res, next) => {
-	passport.authenticate('google', async (err, user, info) => {
-		if (err) {
-			return res.redirect(`${process.env.FRONT_END_URL}/login?error=server_error`);
-		}
-		if (!user) {
-			return res.redirect(`${process.env.FRONT_END_URL}/login?error=authentication_failed`);
-		}
+    passport.authenticate('google', async (err, user, info) => {
+        if (err) {
+            return res.redirect(`${process.env.FRONT_END_URL}/login?error=server_error`);
+        }
+        if (!user) {
+            return res.redirect(`${process.env.FRONT_END_URL}/login?error=authentication_failed`);
+        }
 
-		try {
-			let existingUser = await User.findOne({ email: user.email });
-			if (existingUser) {
-				existingUser.isLoggedIn = true;
-				await existingUser.save();
-				return res.redirect(`${process.env.FRONT_END_URL}/dashboard?userData=${encodeURIComponent(JSON.stringify(existingUser))}`);
-			} else {
-				const { email } = user;
-				const randomPassword = generateRandomPassword(12);
-				const data = {
-					name: `${user.given_name} ${user.family_name}`,
-					email,
-					password: randomPassword,
-					phoneNumber: '',
-					dateOfBirth: '',
-					isLoggedIn: true
-				};
+        try {
+            let existingUser = await User.findOne({ email: user.email });
+            if (existingUser) {
+                existingUser.isLoggedIn = true;
+                await existingUser.save();
+                return res.redirect(`${process.env.FRONT_END_URL}/dashboard?userData=${encodeURIComponent(JSON.stringify(existingUser))}`);
+            } else {
+                const { email } = user;
+                const randomPassword = generateRandomPassword(12);
+                const data = {
+                    name: `${user.given_name} ${user.family_name}`,
+                    email,
+                    password: randomPassword,
+                    phoneNumber: '',
+                    dateOfBirth: '',
+                    isLoggedIn: true
+                };
 
-				const salt = await bcrypt.genSalt(10);
-				data.password = await bcrypt.hash(data.password, salt);
-				await User.insertMany(data);
-				return res.redirect(`${process.env.FRONT_END_URL}/dashboard?userData=${encodeURIComponent(JSON.stringify(data))}`);
-			}
-		} catch (dbError) {
-			console.error('Database operation error:', dbError);
-			return res.redirect(`${process.env.FRONT_END_URL}/login?error=internal_server_error`);
-		}
-	})(req, res, next);
+                const salt = await bcrypt.genSalt(10);
+                data.password = await bcrypt.hash(data.password, salt);
+                const newUser = await User.create(data);
+				console.log(newUser, 'hello hello ')
+                return res.redirect(`${process.env.FRONT_END_URL}/dashboard?userData=${encodeURIComponent(JSON.stringify(newUser))}`);
+            }
+        } catch (dbError) {
+            console.error('Database operation error:', dbError);
+            return res.redirect(`${process.env.FRONT_END_URL}/login?error=internal_server_error`);
+        }
+    })(req, res, next);
 });
+
 
 // update profile 
 
