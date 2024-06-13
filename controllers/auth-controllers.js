@@ -1,11 +1,16 @@
 const service = require('../utils/auth-service')
-const {User, html } = require('../src/config')
+const {User, Address, RecepientAddress, Parcel, Shipment, PredefinedParcel } = require('../src/config');
 const randomstring = require('randomstring');
 const generateOTP = require('../utils/otp-generator')
 const { sendEmail } = require('../utils/node-mailer');
-const response = require('../utils/responses')
+const response = require('../utils/responses');
+const axios = require('axios');
 const bcrypt = require('bcrypt');
-require('dotenv').config()
+require('dotenv').config();
+const crypto = require('crypto');
+function generateRandomPassword(length) {
+	return crypto.randomBytes(length).toString('hex').slice(0, length);
+}
 const Register = async (req, res) => {
 	const { name, email, password, dateOfBirth, phoneNumber } = req.body;
 	
@@ -193,4 +198,243 @@ const ForgotPassword = async (req, res) => {
 
 
 
-module.exports = { Register, ResendOTP, VerifyEmail, ForgotPassword, ResetPassword, UpdatePassword}
+  const CreateAddress = async (req, res) => {
+    const { addressType, userId, senderName, company, street1, street2, city, state, zip, country, email, phone, isBusinessAddress } = req.body;
+  
+    const addressData = {
+      name: senderName,
+      company,
+      street1,
+      street2,
+      city,
+      state,
+      zip,
+      country,
+      email,
+      phone,
+      user: userId,
+      isBusinessAddress
+    };
+
+    // console.log(addressData,process.env.EASY_POST_TEST_KEY,  'address data');
+  
+    try {
+      const response = await axios.post('https://api.easypost.com/v2/addresses', { address: addressData }, {
+        auth: {
+          username: process.env.EASY_POST_TEST_KEY,
+        },
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Save address in MongoDB
+      if(addressType === 'sender')
+        {
+          const newAddress = new Address(addressData);
+      await newAddress.save();
+  
+      // Link the address to the user
+      const user = await User.findById(userId);
+      console.log(response.data, user, 'hello response brother');
+      user.user_ddresses.push(newAddress);
+      await user.save();
+  
+      
+      res.status(200).json({ easypost: response.data, address: newAddress });
+        }
+
+     else {
+      const newAddress = new RecepientAddress(addressData);
+      await newAddress.save();
+  
+      res.status(200).json({ easypost: response.data, address: newAddress });
+     }
+    } catch (error) {
+      console.error(error.response ? error.response.data : error.message);
+      res.status(500).json({ error: error.response ? error.response.data : error.message });
+    }
+  };
+
+  const CreateParcel = async (req, res) => {
+    const { length, width, height, weight, userId } = req.body;
+
+    // Ensure all required fields are present in the request body
+   
+    if (!length || !width || !height || !weight || !userId) {
+        return res.status(400).json({ success: false, error: "Missing required fields in request body" });
+    }
+
+    const data = {
+      
+            length,
+            width,
+            height,
+            weight
+    
+    };
+
+    const config = {
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        auth: {
+            username: process.env.EASY_POST_TEST_KEY
+        }
+    };
+    try {
+        const response = await axios.post('https://api.easypost.com/v2/parcels', {parcel: data}, config);
+        const newData = { ...data, user: userId };
+        const parcel = new Parcel(newData);
+        await parcel.save();
+
+        // Respond with success and the created parcel data
+        res.json({ success: true, easypost: response.data, parcel: parcel });
+    } catch (error) {
+        // Handle errors from the EasyPost API or database operation
+        console.error('Error:', error.response ? error.response.data : error.message);
+        const status = error.response ? error.response.status : 500;
+        res.status(status).json({ success: false, error: error.response ? error.response.data : error.message });
+    }
+};
+const CreatePredefinedParcel = async (req, res) => {
+  const { predefinedPackage, weight, userId } = req.body;
+
+ 
+  if (!predefinedPackage || !weight || !userId) {
+      return res.status(400).json({ success: false, error: "Missing required fields in request body" });
+  }
+
+  const data = {
+    predefined_package: predefinedPackage,
+    weight
+  };
+
+  const config = {
+      headers: {
+          'Content-Type': 'application/json'
+      },
+      auth: {
+          username: process.env.EASY_POST_TEST_KEY
+      }
+  };
+  console.log(data,process.env.EASY_POST_TEST_KEY, 'parcel data');
+  try {
+      const response = await axios.post('https://api.easypost.com/v2/parcels', {parcel: data}, config);
+
+      const newData = { ...data, user: userId };
+      console.log(newData, 'new data')
+      const parcel = new PredefinedParcel(newData);
+      await parcel.save();
+      res.json({ success: true, easypost: response.data, parcel: parcel });
+  } catch (error) {
+      console.error('Error:', error.response ? error.response.data : error.message);
+      const status = error.response ? error.response.status : 500;
+      res.status(status).json({ success: false, error: error.response ? error.response.data : error.message });
+  }
+};
+
+
+
+const CreateShpiment = async (req,res) => {
+  const { senderAddressId, recipientAddressId, parcelId, userId } = req.body;
+
+  if (!senderAddressId || !recipientAddressId || !parcelId) {
+      return res.status(400).json({ success: false, error: "Missing required fields in request body" });
+  }
+
+  const data = {
+    
+        to_address: {
+            id: senderAddressId
+        },
+        from_address: {
+            id: recipientAddressId
+        },
+        parcel: {
+            id: parcelId
+        }
+    
+};
+
+
+  const config = {
+      headers: {
+          'Content-Type': 'application/json'
+      },
+      auth: {
+          username: process.env.EASY_POST_TEST_KEY
+      }
+  };
+  try {
+      const response = await axios.post('https://api.easypost.com/v2/shipments', {shipment: data}, config);
+      const newData = { to_address: senderAddressId, from_address: recipientAddressId, parcel: parcelId, user: userId };
+      const shipment = new Shipment(newData);
+      await shipment.save();
+      res.json({ success: true, easypost: response.data, shipment: shipment });
+  } catch (error) {
+      console.error('Error:', error.response ? error.response.data : error.message);
+      const status = error.response ? error.response.status : 500;
+      res.status(status).json({ success: false, error: error.response ? error.response.data : error.message });
+  }
+}
+
+
+const AllShipments = async (req, res) => {
+    try {
+        const shipments = await Shipment.find();
+        res.json({ success: true, shipments });
+    } catch (error) {
+        console.error('Error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+
+}
+
+
+
+const CreateUserOfTelegram = async (req,res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ message: 'Method not allowed' });
+}
+
+const { code } = req.body;
+
+try {
+    const response = await axios.get(`https://glocks.up.railway.app/planInfoTwo?code=${code}`);
+    const data = response.data;
+
+    if (data.planExpiry === "invalid") {
+        return res.status(400).json({ message: 'Please enter a valid code and login another way.' });
+    }
+
+    const { name } = data;
+
+    let existingUser = await User.findOne({ name });
+
+    if (!existingUser) {
+      const randomPassword = generateRandomPassword(12);
+      const data = {
+          name: name,
+          email: '',
+          password: randomPassword,
+          phoneNumber: '',
+          dateOfBirth: '',
+          isLoggedIn: true
+      };
+
+      const salt = await bcrypt.genSalt(10);
+      data.password = await bcrypt.hash(data.password, salt);
+      const newUser = await User.create(data);
+      existingUser = newUser
+   
+    }
+    res.status(200).json({ message: 'User logged in successfully', user: existingUser });
+    
+} catch (error) {
+    console.error('Error checking code:', error);
+    res.status(500).json({ message: 'An error occurred while checking the code' });
+}
+}
+
+module.exports = { Register, ResendOTP, VerifyEmail, ForgotPassword, ResetPassword, UpdatePassword, CreateAddress, CreateParcel, CreatePredefinedParcel, CreateShpiment, AllShipments, CreateUserOfTelegram}
